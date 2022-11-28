@@ -1,0 +1,10 @@
+# yolov1 requirements
+# Usage: pip install -r requirements.txt
+
+# Base ----------------------------------------
+torch==1.12.1
+torchvision==0.13.1
+d2l==0.17.5
+numpy==1.19.5
+opencv_python==4.6.0.66
+PyYAML==6.0
