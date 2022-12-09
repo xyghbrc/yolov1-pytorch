@@ -13,12 +13,6 @@ import os
 
 model_cfg_dir = 'yolov1.yaml'
 
-'''detection model parameters'''
-gpu_nums = 1       #gpu数量
-'''H：图像高，W：图像宽，classes：类别数，side：grid cell个数，B：每个cell对应的bbox数'''
-H, W, classes, side, B= 448, 448, 20, 7, 3
-pr_thresh, iou_thresh, filter_thresh = 0.005, 0.5, 0.2
-
 '''color to get'''
 colors = [[255,0,255], [0,0,255], [0,255,255], [0,255,0], [255,255,0], [255,0,0]]
 
@@ -98,32 +92,32 @@ if __name__ == "__main__":
     batch_size = model_para['batch_size_predict']
     '''H：图像高，W：图像宽，classes：类别数，side：grid cell个数，B：每个cell对应的bbox数'''
     net_cfg = model_para['net_cfg']
-    H, W, C = model_para['H'], model_para['W'], model_para['C']
     classes, side, B = model_para['classes'], model_para['side'], model_para['num_Bbox']
     pr_thresh, iou_thresh, filter_thresh = model_para['pr_thresh'], model_para['iou_thresh'], model_para['filter_thresh']
     # define model and to devices
     devices = [d2l.try_gpu(i) for i in range(gpu_nums)]
     my_yolo_v1 = yolo_v1(net_cfg)
+    my_yolo_v1 = my_yolo_v1.to(devices[0])
     # my_yolo_v1 = nn.DataParallel(module=my_yolo_v1, device_ids=devices)
-    my_yolo_v1.eval()
     # loading weights
-    my_yolo_v1.load_state_dict(torch.load('models/yolo_v1_40000.pth', map_location=devices[0]), strict=False)
-    dataset = yolo_v1_dataset('', '2007_test.txt', category='test')
+    my_yolo_v1.load_state_dict(torch.load('models/yolo_v1_40000.pth', map_location=devices[0]))
+    dataset = yolo_v1_dataset('', 'train.txt', category='test')
     img_loader = DataLoader(dataset, batch_size=batch_size, num_workers=0, drop_last=False)
 
+    my_yolo_v1.eval()
     for img_bgr, img_rgb, img_name in img_loader:
         img_bgr = np.array(img_bgr[0])
         oh, ow, oc = img_bgr.shape
         # model forward
         start_time = time.time()
-        output = my_yolo_v1(img)
+        output = my_yolo_v1(img_rgb)
         prob, confi_coor = decoder(predictions=output, h=oh, w=ow, pr_thresh=pr_thresh, classes=classes, side=side, B=B, devices=devices)
         '''Do NMS'''
         prob = do_nms_sort(prob, confi_coor, side * side * B, classes, iou_thresh, devices)
         '''write and save/show picture'''
         for i in range(classes):
             for j in range(side * side * B):
-                if prob[i, j] > 0.2:
+                if prob[i, j] > filter_thresh:
                     # get coordinate of left-top and right-bot
                     x, y ,w, h = confi_coor[1, j].item(), confi_coor[2, j].item(), confi_coor[3, j].item(), confi_coor[4, j].item()
                     x1, y1, x2, y2 = int(x - w / 2), int(y - h / 2), int(x + w / 2), int(y + h / 2)
@@ -134,15 +128,15 @@ if __name__ == "__main__":
                     red, green, blue = int(get_color(2, offset, classes)), int(get_color(1, offset, classes)), int(get_color(0, offset, classes))
                     draw_color = [blue, green, red]
                     cv2.rectangle(img_bgr, (x1, y1), (x2, y2), draw_color, 2)
-                    name_prob = OBJ_NAMES[i] + ' ' + str(round(prob[i, j].item(), 2))
+                    name_prob = VOC_NAMES[i] + ' ' + str(round(prob[i, j].item(), 2))
                     delta_x = len(name_prob) * 10
                     delta_y = 17
                     bounding = np.array([[x1, y1 - delta_y], [x1 + delta_x, y1 - delta_y], [x1 + delta_x, y1], [x1, y1]])
                     cv2.fillPoly(img_bgr, [bounding], draw_color)
                     cv2.putText(img_bgr, name_prob, (x1 + 5, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, [0, 0, 0], 2)
         print("\r", 'Predicted in: {0:.6f} s '.format(time.time() - start_time), end = "", flush=True)
-        # # show image
-        # cv2.imshow('w1', img_bgr)
-        # cv2.waitKey()
-        # write into dir
-        cv2.imwrite(os.path.join('test_result', os.path.split(img_name[0])[-1]), img_bgr)
+        # show image
+        cv2.imshow('w1', img_bgr)
+        cv2.waitKey()
+        # # write into dir
+        # cv2.imwrite(os.path.join('test_result', os.path.split(img_name[0])[-1]), img_bgr)
