@@ -37,7 +37,7 @@ if __name__ == "__main__":
     '''定义优化器参数'''
     momentum, learning_rate, decay = model_para['momentum'], model_para['learning_rate'], model_para['decay']
     '''W：图像高，H：图像宽'''
-    W, H, C = model_para['W'], model_para['H'], model_para['C']
+    W, H = model_para['W'], model_para['H']
     '''数据增强'''
     jitter, exposure, saturation, hue = model_para['jitter'], model_para['exposure'], \
                                         model_para['saturation'], model_para['hue']
@@ -80,7 +80,6 @@ if __name__ == "__main__":
     # learning_rate schedule
     '''模型学习率变化表，每个循环进入函数f更新新的学习率'''
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=opt, lr_lambda=f)
-    # writer = SummaryWriter("dataloader")
     '''初始化网络损失'''
     step = 0
     ave_loss = -1
@@ -91,7 +90,6 @@ if __name__ == "__main__":
         for imgs, labels in train_data_loader:
             load_time1 = time.time()
             module_time0 = time.time()
-            step += 1
             curr_batch = imgs.shape[0]
             division = curr_batch // sub_batch
             imgs, labels = imgs.to(devices[0]), labels.to(devices[0])
@@ -123,6 +121,7 @@ if __name__ == "__main__":
             opt.step()
             '''学习率步进'''
             scheduler.step()
+            step += 1
             sum_loss /= curr_batch
             if ave_loss < 0:
                 ave_loss = sum_loss
