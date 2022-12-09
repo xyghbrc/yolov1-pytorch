@@ -41,27 +41,31 @@ class yolo_v1_dataset(data.Dataset):
         # convert pixel value to [0, 1]
         img_rgb = np.float32(img_rgb / 255.)
         # img_rgb = torch.Tensor(img_rgb)
-        '''从txt中读入图像名称和对应的labels标签'''
-        with open(self.txt_names[index]) as f_txt:
-            ground_truth = f_txt.readlines()
-        boxes = []
-        for line in ground_truth:
-            split_line = line.strip().split()
-            c = int(split_line[0])
-            x = np.float32(split_line[1])
-            y = np.float32(split_line[2])
-            w = np.float32(split_line[3])
-            h = np.float32(split_line[4])
-            left = x - w/2
-            right = x + w/2
-            top = y - h/2
-            bottom = y + h/2
-            boxes.append([x, y, w, h, left, right, top, bottom, c])
-        boxes = torch.Tensor(boxes)  # convert to tensor
-        if self.category == 'train':
+        oh, ow, _ = img_rgb.shape
+        if self.category == 'test':
+            # reshape to: (C, H, W)
+            img_rgb = self.resize_image(img_rgb, oh, ow).transpose(2, 0, 1)
+            return img_bgr, torch.Tensor(img_rgb), self.img_names[index]
+        elif self.category == 'train':
+            '''从txt中读入图像名称和对应的labels标签'''
+            with open(self.txt_names[index]) as f_txt:
+                ground_truth = f_txt.readlines()
+            boxes = []
+            for line in ground_truth:
+                split_line = line.strip().split()
+                c = int(split_line[0])
+                x = np.float32(split_line[1])
+                y = np.float32(split_line[2])
+                w = np.float32(split_line[3])
+                h = np.float32(split_line[4])
+                left = x - w / 2
+                right = x + w / 2
+                top = y - h / 2
+                bottom = y + h / 2
+                boxes.append([x, y, w, h, left, right, top, bottom, c])
+            boxes = torch.Tensor(boxes)  # convert to tensor
             '''Data pre-process'''
             # random crop
-            oh,ow,channels = img_rgb.shape
             dw = int(ow*self.jitter)
             dh = int(oh*self.jitter)
             '''随机裁切的上下左右四个参数'''
@@ -72,15 +76,15 @@ class yolo_v1_dataset(data.Dataset):
             swidth = ow - pleft - pright
             sheight = oh - ptop - pbot
             '''裁切图像'''
-            img_crop = self.rand_crop(img_rgb, oh, ow, channels, pleft, ptop, swidth, sheight)
+            img_crop = self.rand_crop(img_rgb, oh, ow, pleft, ptop, swidth, sheight)
             # resize image
             '''将图像缩放至448*448'''
-            img_resized = self.resize_image(img_crop, sheight, swidth, channels)
+            img_resized = self.resize_image(img_crop, sheight, swidth)
             # random flip
             '''以0.5的概率随机左右翻转图像'''
             flip_rand_num = random.randint(0,1)
             if flip_rand_num == 1:
-                img_resized = self.flip_image(img_resized, channels)
+                img_resized = self.flip_image(img_resized)
             # distort image
             '''对图像做hsv变换'''
             img_resized = self.distort_image(img_resized)
@@ -96,13 +100,6 @@ class yolo_v1_dataset(data.Dataset):
             # reshape to: (C, H, W)
             img_resized = img_resized.transpose(2, 0, 1)
             return torch.Tensor(img_resized), truth
-        elif self.category == 'test':
-            num_boxes = boxes.size(0)   # nums of boxes
-            '''boxes encode'''
-            truth = self.encoder(boxes, num_boxes)
-            # reshape to: (C, H, W)
-            img_rgb = img_rgb.transpose(2, 0, 1)
-            return img_bgr, torch.Tensor(img_rgb), self.img_names[index]
 
     def __len__(self):
         return self.read_lines.__len__()
@@ -174,7 +171,7 @@ class yolo_v1_dataset(data.Dataset):
 
     # random crop
     '''图像裁切'''
-    def rand_crop(self, img_rgb, oh, ow, channels, pleft, ptop, swidth, sheight):
+    def rand_crop(self, img_rgb, oh, ow, pleft, ptop, swidth, sheight):
         H_index = np.arange(sheight) + ptop
         H_index = np.clip(H_index, a_min = 0, a_max = oh - 1)
         W_index = np.arange(swidth) + pleft
@@ -183,7 +180,7 @@ class yolo_v1_dataset(data.Dataset):
 
     # resize image
     '''图像缩放'''
-    def resize_image(self, img_crop, oh, ow, channels):
+    def resize_image(self, img_crop, oh, ow):
         w_scale = np.float32(ow - 1) / np.float32(self.W - 1)
         h_scale = np.float32(oh - 1) / np.float32(self.H - 1)
         # w方向缩放
@@ -213,7 +210,7 @@ class yolo_v1_dataset(data.Dataset):
 
     # image flip
     '''图像的左右翻转'''
-    def flip_image(self, img_resized, channels):
+    def flip_image(self, img_resized):
         W_index = self.W - 1 - np.arange(self.W)
         return img_resized[:, W_index, :]
 
@@ -303,7 +300,7 @@ class yolo_v1_dataset(data.Dataset):
 if __name__ == "__main__":
     my_data = yolo_v1_dataset('', 'train.txt', 448, 448, 0.2, 1.5, 1.5, 0.1, 7, 20)
     start_time = time.time()
-    img, label = my_data.__getitem__(13235)
+    img, label = my_data.__getitem__(4354)
     cv2.imshow('w1', my_data.RGB2BGR(np.array(img.permute(1, 2, 0))))
     cv2.waitKey(0)
     print(time.time() - start_time)
