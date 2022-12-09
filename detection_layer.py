@@ -79,12 +79,14 @@ class Loss(nn.Module):
                 truth = labels[cnt_batch,
                         1 + self.classes + cnt_locations * (1 + self.classes + 4):
                         1 + self.classes + cnt_locations * (1 + self.classes + 4) + 4].clone()
+                # truth[0: 2] = truth[0: 2] / self.side
                 truth[0: 2] = truth[0: 2] / self.side
                 # compute iou and rmse
                 for cnt_B in range(self.B):
                     out = input[cnt_batch,
                     locations * self.classes + locations * self.B + cnt_locations * self.B * 4 + cnt_B * 4 :
                     locations * self.classes + locations * self.B + cnt_locations * self.B * 4 + cnt_B * 4 + 4].detach().clone()
+                    # out[0 : 2] = out[0 : 2] / self.side
                     out[0 : 2] = out[0 : 2] / self.side
                     out[2 : 4] = out[2 : 4] * out[2 : 4]
                     curr_iou = compute_iou(truth, out)
@@ -102,6 +104,7 @@ class Loss(nn.Module):
                 best_out = input[cnt_batch,
                     locations * self.classes + locations * self.B + cnt_locations * self.B * 4 + best_index * 4 :
                     locations * self.classes + locations * self.B + cnt_locations * self.B * 4 + best_index * 4 + 4].detach().clone()
+                # best_out[0: 2] = best_out[0: 2] / self.side
                 best_out[0: 2] = best_out[0: 2] / self.side
                 best_out[2: 4] = best_out[2: 4] * best_out[2: 4]
 
@@ -153,6 +156,6 @@ if __name__ == "__main__":
     labels = torch.randn(8, 1225)
     start_time = time.time()
     loss = my_loss(input, labels)
-    loss.backward()
     stop_time = time.time()
+    loss.backward()
     print(stop_time - start_time)
