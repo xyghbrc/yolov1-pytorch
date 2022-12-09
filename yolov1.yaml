@@ -3,7 +3,7 @@ seed: 0                # random seed
 gpu_nums: 1            # nums of gpu
 batch_size: 64         # batch_size
 sub_batch: 8           # each incoming network image
-train_epoch: 82        # nums of epoch
+train_epoch: 164       # nums of epoch
 batch_size_predict: 1         # predict_batch_size
 
 # data augmentation
@@ -27,7 +27,7 @@ scales: [2.5, 2, 2, 0.1, 0.1]          # stride of learning_rate
 # detection_layer
 side: 7
 num_Bbox: 3
-classes: 10
+classes: 20
 noobject_scale: 0.5
 object_scale: 1
 class_scale: 1
@@ -63,4 +63,4 @@ net_cfg:
    ['one2three', [1024, 512, 2]],
    ['CBL', [1024, 1024, 3, 1], [1024, 1024, 3, 2], [1024, 1024, 3, 1], [1024, 1024, 3, 1]],
    ['local', [1024, 256, 7, 3, 1, 1, True]], ['Flatten', ],
-   ['dropout', [0.5, ]], ['linear', [12544, 1225]]]
+   ['dropout', [0.5, ]], ['linear', [12544, 1715]]]
