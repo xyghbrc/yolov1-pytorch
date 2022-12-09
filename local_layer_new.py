@@ -14,7 +14,6 @@ class LocallyConnected2d(nn.Module):
         weight = torch.zeros(1, out_channels, in_channels, output_size[0], output_size[1], kernel_size ** 2)
         '''weight initial'''
         weight[:, :, :, 0, 0, :] = (2 * torch.rand(1, out_channels, in_channels, kernel_size ** 2) - 1) * scale
-        # weight[:, :, :, 0, 0, :] = torch.full_like(weight[:, :, :, 0, 0, :], 0.0001)
         '''the weight and bias are encapsulated with nn.Parameter()'''
         self.weight = nn.Parameter(
             weight
