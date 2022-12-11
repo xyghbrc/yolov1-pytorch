@@ -7,31 +7,47 @@ from dataset import yolo_v1_dataset
 from torch.utils.data import DataLoader
 from d2l import torch as d2l
 import yaml
-from detection_layer import compute_iou
+# from detection_layer import compute_iou
 import time
 import os
 
 model_cfg_dir = 'yolov1.yaml'
 
 '''color to get'''
-colors = [[255,0,255], [0,0,255], [0,255,255], [0,255,0], [255,255,0], [255,0,0]]
+colors = torch.Tensor([[255,0,255], [0,0,255], [0,255,255], [0,255,0], [255,255,0], [255,0,0]])
 
 '''定义绘制检测框颜色的函数'''
 def get_color(c, x, max):
-    ratio = (np.float32)(x / max) * 5
-    i = int(np.floor(ratio))
-    j = int(np.ceil(ratio))
-    ratio -= i
-    r = (1 - ratio) * colors[i][c] + ratio * colors[j][c]
+    ratio = (x / max) * 5
+    i = torch.floor(ratio).long()
+    j = torch.ceil(ratio).long()
+    ratio = ratio - i
+    r = (1 - ratio) * colors[i, c] + ratio * colors[j, c]
     return r
 
-'''防止像素索引越界'''
-def constrain_pixel(pixel, lower, upper):
-    if pixel < lower:
-        return lower
-    elif pixel > upper:
-        return upper
-    return pixel
+'''计算两个bbox iou的函数'''
+def compute_iou(truth, out):
+    # intersection
+    l1 = truth[:, 0] - 0.5 * truth[:, 2]
+    l2 = out[:, 0] - 0.5 * out[:, 2]
+    left = torch.where(l1 > l2, l1, l2)
+    r1 = truth[:, 0] + 0.5 * truth[:, 2]
+    r2 = out[:, 0] + 0.5 * out[:, 2]
+    right = torch.where(r1 < r2, r1, r2)
+
+    t1 = truth[:, 1] - 0.5 * truth[:, 3]
+    t2 = out[:, 1] - 0.5 * out[:, 3]
+    top = torch.where(t1 > t2, t1, t2)
+    b1 = truth[:, 1] + 0.5 * truth[:, 3]
+    b2 = out[:, 1] + 0.5 * out[:, 3]
+    bottom = torch.where(b1 < b2, b1, b2)
+    w = right - left
+    h = bottom - top
+    box_intersection = w * h
+    box_union = truth[:, 2] * truth[:, 3] + out[:, 2] * out[:, 3] - box_intersection
+    iou = box_intersection / box_union
+    iou = torch.where((w < 0) | (h < 0), 0, iou)
+    return iou
 
 def decoder(predictions, h, w, pr_thresh, classes, side, B, devices):
     # define output
@@ -57,30 +73,19 @@ def decoder(predictions, h, w, pr_thresh, classes, side, B, devices):
     return prob, confi_coor
 
 def do_nms_sort(box_prob, confi_coor, total, classes, iou_thresh, devices):
-    k = total - 1
-    cnt_total = 0
-    # 把置信度为0的框置后
-    while cnt_total <= k:
-        if confi_coor[0, cnt_total].item() == 0:
-            swap = box_prob[:, cnt_total].detach().clone().to(devices[0])
-            box_prob[:, cnt_total] = box_prob[:, k]
-            box_prob[:, k] = swap
-            k -= 1
-            cnt_total -= 1
-        cnt_total += 1
-    total = k + 1
     val, ind = torch.sort(box_prob[:, 0:total], dim=1, descending=True)   # get indices reflect to confi_coor
     '''do nms'''
-    for k in range(classes):
-        for i in range(total):
-            if val[k, i].item() == 0: continue
-            box1 = confi_coor[1:5, ind[k, i]]
-            j = i + 1
-            while j < total:
-                box2 = confi_coor[1:5, ind[k, j]]
-                if compute_iou(box1, box2) > iou_thresh:
-                    box_prob[k, ind[k, j]] = 0
-                j += 1
+    # generate idx
+    k = torch.repeat_interleave(torch.arange(classes), total)
+    i = torch.arange(total).repeat(classes)
+    j = i + 1
+    exist_val = torch.where((val[k, i] != 0) & (j < total))
+    k_sel, i_sel, j_sel = k[exist_val], i[exist_val], j[exist_val]
+    # get pairs of boxes
+    box_curr = confi_coor[1: 5, ind[k_sel, i_sel]].transpose(1, 0)
+    box_compare = confi_coor[1 : 5, ind[k_sel, j_sel]].transpose(1, 0)
+    zeros_idx = torch.where(compute_iou(box_curr, box_compare) > iou_thresh)
+    box_prob[k_sel[zeros_idx], ind[k_sel, j_sel][zeros_idx]] = 0
     return box_prob
 
 if __name__ == "__main__":
@@ -115,25 +120,24 @@ if __name__ == "__main__":
         '''Do NMS'''
         prob = do_nms_sort(prob, confi_coor, side * side * B, classes, iou_thresh, devices)
         '''write and save/show picture'''
-        for i in range(classes):
-            for j in range(side * side * B):
-                if prob[i, j] > filter_thresh:
-                    # get coordinate of left-top and right-bot
-                    x, y ,w, h = confi_coor[1, j].item(), confi_coor[2, j].item(), confi_coor[3, j].item(), confi_coor[4, j].item()
-                    x1, y1, x2, y2 = int(x - w / 2), int(y - h / 2), int(x + w / 2), int(y + h / 2)
-                    x1, y1, x2, y2 = constrain_pixel(x1, 0, ow - 1), constrain_pixel(y1, 0, oh - 1), constrain_pixel(x2, 0, ow - 1), constrain_pixel(y2, 0, oh - 1)
-                    '''draw rectangle and label'''
-                    # define color
-                    offset = i * 123457 % classes
-                    red, green, blue = int(get_color(2, offset, classes)), int(get_color(1, offset, classes)), int(get_color(0, offset, classes))
-                    draw_color = [blue, green, red]
-                    cv2.rectangle(img_bgr, (x1, y1), (x2, y2), draw_color, 2)
-                    name_prob = VOC_NAMES[i] + ' ' + str(round(prob[i, j].item(), 2))
-                    delta_x = len(name_prob) * 10
-                    delta_y = 17
-                    bounding = np.array([[x1, y1 - delta_y], [x1 + delta_x, y1 - delta_y], [x1 + delta_x, y1], [x1, y1]])
-                    cv2.fillPoly(img_bgr, [bounding], draw_color)
-                    cv2.putText(img_bgr, name_prob, (x1 + 5, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, [0, 0, 0], 2)
+        filter_idx = torch.where(prob > filter_thresh)
+        x, y, w, h = confi_coor[1, filter_idx[1]], confi_coor[2, filter_idx[1]], confi_coor[3, filter_idx[1]], confi_coor[4, filter_idx[1]]
+        x1, y1, x2, y2 = (x - w / 2).int(), (y - h / 2).int(), (x + w / 2).int(), (y + h / 2).int()
+        x1, y1, x2, y2 = x1.clamp(0, ow - 1), y1.clamp(0, oh - 1), x2.clamp(0, ow - 1), y2.clamp(0, oh - 1)
+        '''draw rectangle and label'''
+        # define color
+        offset = filter_idx[0] * 123457 % classes
+        red, green, blue = get_color(2, offset, classes).int(), get_color(1, offset, classes).int(), get_color(0, offset, classes).int()
+        for cnt, _ in enumerate(x):
+            draw_color = [blue[cnt].item(), green[cnt].item(), red[cnt].item()]
+            draw_x1, draw_y1, draw_x2, draw_y2 = x1[cnt].item(), y1[cnt].item(), x2[cnt].item(), y2[cnt].item()
+            cv2.rectangle(img_bgr, (draw_x1, draw_y1), (draw_x2, draw_y2), draw_color, 2)
+            name_prob = VOC_NAMES[filter_idx[0][cnt]] + ' ' + str(round(prob[filter_idx[0][cnt], filter_idx[1][cnt]].item(), 2))
+            delta_x = len(name_prob) * 10
+            delta_y = 17
+            bounding = np.array([[draw_x1, draw_y1 - delta_y], [draw_x1 + delta_x, draw_y1 - delta_y], [draw_x1 + delta_x, draw_y1], [draw_x1, draw_y1]])
+            cv2.fillPoly(img_bgr, [bounding], draw_color)
+            cv2.putText(img_bgr, name_prob, (draw_x1 + 5, draw_y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, [0, 0, 0], 2)
         print("\r", 'Predicted in: {0:.6f} s '.format(time.time() - start_time), end = "", flush=True)
         # show image
         cv2.imshow('w1', img_bgr)
